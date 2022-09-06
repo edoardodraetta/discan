@@ -23,6 +23,7 @@ def combine_ranks(data, hpo_terms):
 
     # Take the vertical mean (across scores in each gene)
     # Label as genes
+
     return pd.Series(gmean(data.loc[hpo_terms, :], axis=0), index=data.columns)
 
 # given a list of hpo terms, get the closest ancestor in dataset columns
@@ -63,7 +64,7 @@ diseases = ["%s: %s" % (disease_ids[x], disease_names[x]) for x in range(len(dis
 # Model
 
 # Read from chunks
-model_probas = pd.read_csv("data/compr_probas_2022_0.csv.gz", index_col=0, compression='gzip')
+model_probas = pd.read_csv("data/compr_probas_2019_00.csv.gz", index_col=0, compression='gzip')
 for chunk in range(1, 10):
     filename = "data/compr_probas_2022_%02d.csv.gz" % chunk
     model_probas = pd.concat(
@@ -76,63 +77,79 @@ for chunk in range(1, 10):
 model_ranks = model_probas.rank(axis=1, method="min", pct=True, ascending=False)
 model_ranks.index = [str(x) for x in model_ranks.index]
 
-
+# UI
 app_ui = ui.page_fluid(
+
     ui.panel_title("Welcome to the DisCan testing environment"),
-    ui.layout_sidebar(
-        ui.panel_sidebar(
-# Options
-            ui.input_switch("option", "Option?", value=False),
-            ui.input_radio_buttons(
-                "year", "Choose an HPO year:",
-                {"2019": "2019", "2022": "2022",},
+
+    # ui.row(
+    #     ui.column(6,
+    #         ui.input_text_area(
+    #             "genes_list",
+    #             "Enter list of genes:",
+    #             "TP53 \nBRCA1 \nBRCA2 \nVEGFA",
+    #             height='200px',
+    #             ),
+    #         ),
+    #     ui.column(6,
+    #         ui.output_text_verbatim("genes_report"),
+    #         )
+    #     ),
+
+    ui.input_text_area(
+        "genes_list",
+        "Enter list of genes:",
+        "TP53 \nBRCA1 \nBRCA2 \nVEGFA \nKDM6A",
+        height='200px',
+        ),
+
+    ui.output_text_verbatim("genes_report"),
+
+    ui.row(
+        ui.column(6,
+            ui.input_selectize(
+                "hpo_selected",
+                "Choose some phenotypes:",
+                choices=hpo_terms,
+                selected='',
+                multiple=True,
+                width=200
+                ),
             ),
-# Genes
-                ui.input_text(
-                    "genes_list",
-                    "Enter list of genes (separated by spaces):",
-                    "TP53 BRCA1 BRCA2 VEGFA TP53 bLa test"),
-                ui.output_text_verbatim("genes_report"),
-# Diseases
+        ui.column(6,
+            (
                 ui.input_selectize(
                     "disease_selected",
                     "Choose a disease:",
                     choices=diseases,
-                    selected="",
-                ),
-
-                ui.input_action_button("add", "Add phenotypes associated to disease"),
-# HPO Terms
-                ui.input_selectize(
-                    "hpo_selected",
-                    "Choose some phenotypes:",
-                    choices=hpo_terms,
-                    selected='',
-                    multiple=True,
-                ),
-# Go!
-                ui.input_action_button("compute", "Compute!"),
-                ui.input_action_button("reset", "Reset"),
-        ),
-# Output!
-        ui.panel_main(
-            ui.output_table("result"),
+                    selected=[],
+                    width="400px"
+                    ),
+                ui.input_action_button(
+                    "add",
+                    "Add phenotypes associated to disease"
+                    ),
+                )
             ),
-    )
+        ),
+
+    ui.input_action_button("compute", "Compute!"),
+    ui.input_action_button("reset", "Reset"),
+    ui.output_table("result"),
 )
+
 
 
 def server(input, output, session):
 
-
-# Handling Genes
-
+# Genes
     @reactive.Calc
     def get_genes():
         # Given the input genes list, returns valid gene Entrez IDs and Names
-        # - TODO: cast string to uppercase
 
         genes = input.genes_list().split() # input genes
+        genes = [x.upper() for x in genes] # cast to upper
+
         final_genes = set() # sets cannot contain duplicates
 
         # Select annotated and not annotated genes
@@ -147,14 +164,18 @@ def server(input, output, session):
                 # a gene symbol is given
                 [final_genes.add(x) for x in gene_annotation.neighbors(g)]
 
-        return list(final_genes), list(genes_in)
+        return list(final_genes), list(set(genes_in)), list(set(genes_out))
 
     @output
     @render.text
     def genes_report():
         # Output valid gene names
-        _, genes = get_genes()
-        return f"Valid genes are\n {list(set(genes))}"
+        _, genes, invalid_genes = get_genes()
+
+        if len(invalid_genes) == 0:
+            return f"Valid genes are\n {genes}"
+        else:
+            return f"Valid genes are\n {genes}\nInvalid genes are\n {invalid_genes}"
 
 # Display HPO selection
     @reactive.Calc
@@ -194,11 +215,12 @@ def server(input, output, session):
                     selected=list(get_hpo_terms()),
                 )
 
-# Rank calculations and display
+# Rank calculations
     @reactive.Calc
     def compute_gene_ranks():
+
         # Get input genes and hpo_terms
-        genes, _ = get_genes()
+        genes, gene_names, _ = get_genes()
         terms = get_hpo_terms()
 
         # No input (can add error reporting later, including for invalid genes)
@@ -208,16 +230,16 @@ def server(input, output, session):
         # Reduce HPO terms to include only HP ID
         terms = [x[:10] for x in terms]
 
-        # Select only selected genes
+        # Subeset to selected genes
         subset_ranks = model_ranks[genes] # subset data to perform less calculation
 
         # Selected terms that are in the dataset, or nearest ancestors
         subset_terms = reduce_terms(subset_ranks, hpo_net, terms)
 
+        # Perform geometric mean operation
         ranked_genes = combine_ranks(subset_ranks, subset_terms).sort_values()
 
-        return ranked_genes, "subset_info"
-
+        return ranked_genes
 
 
     @output
@@ -225,9 +247,25 @@ def server(input, output, session):
     def result():
         if input.compute() != 0:
             with reactive.isolate():
-                if compute_gene_ranks() == None:
+
+                if len(compute_gene_ranks()) == 0:
                     return ""
-                ranked_genes, subset_info = compute_gene_ranks()
-                return pd.DataFrame(zip(ranked_genes.index, ranked_genes), columns=["Entrez ID", "Score"])
+
+                ranked_genes = compute_gene_ranks()
+                ranked_genes.sort_values(ascending=True, inplace=True)
+                ids = []
+                names = []
+                symbols = []
+                for gene in ranked_genes.index:
+                    ids.append(gene)
+                    names.append(gene_annotation.nodes()[gene]['name'])
+                    symbols.append(list(gene_annotation.neighbors(gene))[0])
+                    print(gene)
+
+
+                columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score"]
+                return pd.DataFrame(zip(symbols, ids, names, ranked_genes), columns=columns)
+
+
 
 app = App(app_ui, server)
