@@ -80,7 +80,25 @@ model_ranks.index = [str(x) for x in model_ranks.index]
 # UI
 app_ui = ui.page_fluid(
 
-    ui.panel_title("Welcome to the DisCan testing environment"),
+    ui.panel_title("DISCAN"),
+
+    ui.markdown("##### Welcome"),
+    ui.markdown(
+        "This application calculates the likelihood of involvement of one or " \
+        "more genes in a genetic syndrome characterized by a set of abnormal phenotypes."
+        ),
+
+    ui.markdown(
+        "(rewrite needed) The underlying model is a random forest classifier trained on gene features not related to gene function, "\
+        "e.g. triplet frequency, coding sequence length, histone marks, and others. The two most predictive features, "\
+        "however, were the evolutionary age of the gene and the number of times the gene was mutated across all cancers. " \
+        "This second measure is the thrust of our paper, and reflects the fact that genes compatible with genetic disease " \
+        "are likely to be compatible with cancer evolution ."
+        ),
+
+    ui.markdown("##### Abstract"),
+    ui.markdown("Genomic sequence mutations can be pathogenic in both germline and somatic cells. Several authors have observed that often the same genes are involved in cancer when mutated in somatic cells and in genetic diseases when mutated in the germline. Recent advances in high-throughput sequencing techniques have provided us with large databases of both types of mutations, allowing us to investigate this issue in a systematic way. Hence, we applied a machine learning based framework to this problem, comparing multiple independent models. We found that genes characterized by high frequency of somatic mutations in the most common cancers and ancient evolutionary age are most likely to be involved in abnormal phenotypes and diseases. These results suggest that the combination of tolerance for mutations at the cell viability level (measured by the frequency of somatic mutations in cancer) and functional relevance (demonstrated by evolutionary conservation) are the main predictors of disease genes. Our results thus confirm the deep relationship between pathogenic mutations in somatic and germline cells, provide new insight into the common origin of cancer and genetic diseases, and can be used to improve the identification of new disease genes."),
+
 
     # ui.row(
     #     ui.column(6,
@@ -96,20 +114,24 @@ app_ui = ui.page_fluid(
     #         )
     #     ),
 
+    ui.markdown("# Ranking Genes with DISCAN"),
+
+    ui.markdown("##### Enter a list of genes: "),
     ui.input_text_area(
         "genes_list",
-        "Enter list of genes:",
+        "",
         "TP53 \nBRCA1 \nBRCA2 \nVEGFA \nKDM6A",
-        height='200px',
+        height='150px',
         ),
-
     ui.output_text_verbatim("genes_report"),
 
+    ui.markdown("##### Enter a set of abnormal phenotypes:"),
+    ui.markdown("Try selecting 'Kabuki Syndrome' using the default gene list."),
     ui.row(
         ui.column(6,
             ui.input_selectize(
                 "hpo_selected",
-                "Choose some phenotypes:",
+                "Select abnormal phenotypes:",
                 choices=hpo_terms,
                 selected='',
                 multiple=True,
@@ -120,14 +142,14 @@ app_ui = ui.page_fluid(
             (
                 ui.input_selectize(
                     "disease_selected",
-                    "Choose a disease:",
+                    "You may wish to select an OMIM disease which corresponds to a set of abnormal phenotypes.\n Select a disease, then press add.",
                     choices=diseases,
                     selected=[],
                     width="400px"
                     ),
                 ui.input_action_button(
                     "add",
-                    "Add phenotypes associated to disease"
+                    "Add"
                     ),
                 )
             ),
@@ -135,6 +157,8 @@ app_ui = ui.page_fluid(
 
     ui.input_action_button("compute", "Compute!"),
     ui.input_action_button("reset", "Reset"),
+
+    ui.markdown("#### Results table"),
     ui.output_table("result"),
 )
 
