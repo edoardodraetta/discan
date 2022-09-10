@@ -1,6 +1,7 @@
 from shiny import App, render, ui, reactive
 from pyrsistent import pset, pvector # immutable objects
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -114,7 +115,7 @@ app_ui = ui.page_fluid(
     #         )
     #     ),
 
-    ui.markdown("# Ranking Genes with DISCAN"),
+    ui.markdown("## Ranking Genes with DISCAN"),
 
     ui.markdown("##### Enter a list of genes: "),
     ui.input_text_area(
@@ -158,8 +159,11 @@ app_ui = ui.page_fluid(
     ui.input_action_button("compute", "Compute!"),
     ui.input_action_button("reset", "Reset"),
 
-    ui.markdown("#### Results table"),
+    ui.markdown("#### Results Table"),
     ui.output_table("result"),
+
+    ui.markdown("#### Results Plot"),
+    ui.output_plot("results_plot")
 )
 
 
@@ -240,55 +244,100 @@ def server(input, output, session):
                 )
 
 # Rank calculations
-    @reactive.Calc
-    def compute_gene_ranks():
-
-        # Get input genes and hpo_terms
-        genes, gene_names, _ = get_genes()
-        terms = get_hpo_terms()
-
-        # No input (can add error reporting later, including for invalid genes)
-        if len(genes) == 0 or len(terms) == 0:
-            return None
-
-        # Reduce HPO terms to include only HP ID
-        terms = [x[:10] for x in terms]
-
-        # Subeset to selected genes
-        subset_ranks = model_ranks[genes] # subset data to perform less calculation
-
-        # Selected terms that are in the dataset, or nearest ancestors
-        subset_terms = reduce_terms(subset_ranks, hpo_net, terms)
-
-        # Perform geometric mean operation
-        ranked_genes = combine_ranks(subset_ranks, subset_terms).sort_values()
-
-        return ranked_genes
-
-
     @output
     @render.table
     def result():
-        if input.compute() != 0:
-            with reactive.isolate():
+        input.compute()
+        with reactive.isolate():
 
-                if len(compute_gene_ranks()) == 0:
-                    return ""
+            if input.compute() == 0:
+                return None
 
-                ranked_genes = compute_gene_ranks()
-                ranked_genes.sort_values(ascending=True, inplace=True)
-                ids = []
-                names = []
-                symbols = []
-                for gene in ranked_genes.index:
-                    ids.append(gene)
-                    names.append(gene_annotation.nodes()[gene]['name'])
-                    symbols.append(list(gene_annotation.neighbors(gene))[0])
+            # Get input genes and hpo_terms
+            genes, _, _ = get_genes()
+            terms = get_hpo_terms()
+
+            # Reduce HPO terms to include only HP ID
+            terms = [x[:10] for x in terms]
+
+            # Subeset to selected genes
+            # subset_ranks = model_ranks[genes] # subset data to perform less calculation
+
+            # Selected terms that are in the dataset, or nearest ancestors
+            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+
+            # Perform geometric mean operation on all genes in model
+            ranked_genes = combine_ranks(model_ranks, subset_terms)
+            ranked_genes
+
+            # Calculate quantiles
+            quantiles = pd.qcut(ranked_genes, 5, labels=False)
+
+            # Selected gene ranks
+            sel_gene_ranks = ranked_genes[genes]
+            sel_gene_ranks.sort_values(ascending=True, inplace=True)
+            sel_quantiles = quantiles[genes]
+            sel_quantiles.sort_values(ascending=True, inplace=True)
+
+            ids = []
+            names = []
+            symbols = []
+            for gene in sel_gene_ranks.index:
+                ids.append(gene)
+                names.append(gene_annotation.nodes()[gene]['name'])
+                symbols.append(list(gene_annotation.neighbors(gene))[0])
 
 
-                columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score"]
-                return pd.DataFrame(zip(symbols, ids, names, ranked_genes), columns=columns)
+            columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score", "Quantile"]
+            return pd.DataFrame(
+                zip(symbols, ids, names, sel_gene_ranks, sel_quantiles+1),
+                columns=columns)
 
+
+
+    @output
+    @render.plot
+    def results_plot():
+        input.compute()
+        with reactive.isolate():
+
+            if input.compute() == 0:
+                return None
+
+            # 1. geometric mean of ranks of all genes in dataset over selected phenotypes
+
+            # Get input genes and hpo_terms
+            genes, _, _ = get_genes()
+            terms = get_hpo_terms()
+
+            # Reduce HPO terms to include only HP ID
+            terms = [x[:10] for x in terms]
+
+            # Selected terms that are in the dataset, or nearest ancestors
+            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+
+            # Perform geometric mean operation on all genes in model
+            ranked_genes = combine_ranks(model_ranks, subset_terms)
+            ranked_genes.sort_values(ascending=True, inplace=True)
+
+            # Calculate quantiles
+            # quantiles = pd.qcut(ranked_genes, 5, labels=False)
+            # sel_quantiles = quantiles[genes]
+
+            fig, ax = plt.subplots(figsize = (12, 5))
+
+            sns.histplot(ranked_genes, ax=ax)
+
+            q = ['25%','50%', '75%']
+            colors = ['green', 'red', 'blue']
+            desc = ranked_genes.describe()
+            for i in range(len(q)):
+                ax.axvline(desc[q[i]], color=colors[i], ls="--", label=q[i])
+
+            ax.title.set_text("Histogram of Gene Ranks for all Genes in Model")
+            ax.legend()
+
+            return ax
 
 
 app = App(app_ui, server)
