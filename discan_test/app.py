@@ -260,7 +260,6 @@ def server(input, output, session):
                     ids.append(gene)
                     names.append(gene_annotation.nodes()[gene]['name'])
                     symbols.append(list(gene_annotation.neighbors(gene))[0])
-                    print(gene)
 
 
                 columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score"]
