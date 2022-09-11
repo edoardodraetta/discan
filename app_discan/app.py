@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
+
 # Logscale version of the geometric mean
 def gmean(data, axis=0):
     return np.exp(np.mean(np.log(data), axis=axis))
@@ -13,7 +14,6 @@ def gmean(data, axis=0):
 # standard deviation from the geometric mean
 def gstd(data, axis=0):
     mu = gmean(data, axis=axis)
-
     return np.exp(np.sqrt(np.mean((np.log(data) - mu)**2, axis=axis)))
 
 # get geometric mean of ranks for given terms
@@ -46,9 +46,13 @@ def reduce_terms(data, hpo_tree, hpo_terms):
 
 
 # Loading data
-DATADIR = "./data/"
+
+DATADIR = "./app_discan/data/"
+
+# Gene and disease annotations
 gene_annotation = nx.read_graphml(DATADIR + "gene_annotation.graphml")
 disease_net = nx.read_graphml(DATADIR + "disease_annot.graphml")
+
 # HPO Terms
 hpo_net = nx.read_graphml(DATADIR + "hp.220616.obo.graphml") #the HPO obo tree (OLD!)
 hpo_ids = [x for x in hpo_net.nodes() if nx.has_path(hpo_net, x, 'HP:0000118')]
@@ -74,137 +78,144 @@ for chunk in range(1, 10):
         axis=1
 )
 
+# Create rank matrix
 model_ranks = model_probas.rank(axis=1, method="min", pct=True, ascending=False)
 model_ranks.index = [str(x) for x in model_ranks.index]
 
 # UI
 app_ui = ui.page_fluid(
-
     ui.panel_title("DISCAN"),
+    ui.layout_sidebar(
 
-    ui.markdown("##### Welcome"),
-    ui.markdown(
-        "This application calculates the likelihood of involvement of one or " \
-        "more genes in a genetic syndrome characterized by a set of abnormal phenotypes."
-        ),
+        ui.panel_sidebar(
+            ui.markdown("##### Welcome"),
+            ui.markdown(
+                "This application calculates the likelihood of involvement of one or " \
+                "more genes in a genetic syndrome characterized by a set of abnormal phenotypes."
+                ),
 
-    # ui.markdown(
-    #     "(rewrite needed) The underlying model is a random forest classifier trained on gene features not related to gene function, "\
-    #     "e.g. triplet frequency, coding sequence length, histone marks, and others. The two most predictive features, "\
-    #     "however, were the evolutionary age of the gene and the number of times the gene was mutated across all cancers. " \
-    #     "This second measure is the thrust of our paper, and reflects the fact that genes compatible with genetic disease " \
-    #     "are likely to be compatible with cancer evolution ."
-    #     ),
-
-    ui.markdown("##### Abstract"),
-    # ui.markdown("Genomic sequence mutations can be pathogenic in both germline and somatic cells. Several authors have observed that often the same genes are involved in cancer when mutated in somatic cells and in genetic diseases when mutated in the germline. Recent advances in high-throughput sequencing techniques have provided us with large databases of both types of mutations, allowing us to investigate this issue in a systematic way. Hence, we applied a machine learning based framework to this problem, comparing multiple independent models. We found that genes characterized by high frequency of somatic mutations in the most common cancers and ancient evolutionary age are most likely to be involved in abnormal phenotypes and diseases. These results suggest that the combination of tolerance for mutations at the cell viability level (measured by the frequency of somatic mutations in cancer) and functional relevance (demonstrated by evolutionary conservation) are the main predictors of disease genes. Our results thus confirm the deep relationship between pathogenic mutations in somatic and germline cells, provide new insight into the common origin of cancer and genetic diseases, and can be used to improve the identification of new disease genes."),
-
-    ui.markdown("## Ranking Genes with DISCAN"),
-
-    ui.markdown("##### Enter a list of genes: "),
-    ui.row(
-        ui.markdown(""),
-        ui.column(6,
+            ui.markdown("##### Enter a list of genes: "),
             ui.input_text_area(
                 "genes_list",
                 "",
-                "TP53\nBRCA1\nBRCA2\nVEGFA\nKDM6A\nTP53\nTNF\nEGFR\nVEGFA\nAPOE\nIL6\nTGFBI\nMTHFR\nESR1\nAKT1",
-                height='600px',
+                "TP53\nBRCA1\nBRCA2\nVEGFA\nKDM6A\nTP53\nTNF\nbla\n.+0\nEGFR\nVEGFA\nAPOE\nIL6\nTGFBI\nMTHFR\nESR1\nAKT1",
+                height='200px',
                 ),
-            ),
-        ui.column(6,
-            ui.output_table("genes_report_table"),
-            ),
-        ),
 
-    ui.markdown("##### Enter a set of abnormal phenotypes:"),
-    ui.markdown("Try selecting 'Kabuki Syndrome' using the default gene list."),
-    ui.row(
-        ui.column(6,
+            ui.markdown("##### Select abnormal phenotypes:"),
+            ui.input_selectize(
+                "disease_selected",
+                "Select a disease, then press add:",
+                choices=diseases,
+                selected=["OMIM:147920: KABUKI SYNDROME 1: KABUK1"], # Doesn't work for some reason
+                width="400px"
+                ),
+            ui.input_action_button(
+                "add",
+                "Add"
+                ),
+            ui.input_action_button(
+                "clear",
+                "Clear"
+                ),
+            ui.HTML("<br><br>"),
             ui.input_selectize(
                 "hpo_selected",
-                "Select abnormal phenotypes:",
+                "Manually select abnormal phenotypes:",
                 choices=hpo_terms,
                 selected='',
                 multiple=True,
                 width=200
                 ),
             ),
-        ui.column(6,
-            (
-                ui.input_selectize(
-                    "disease_selected",
-                    "You may wish to select an OMIM disease which corresponds to a set of abnormal phenotypes.\n Select a disease, then press add.",
-                    choices=diseases,
-                    selected=[],
-                    width="400px"
-                    ),
-                ui.input_action_button(
-                    "add",
-                    "Add"
-                    ),
-                )
-            ),
+
+        ui.panel_main(
+            # ui.output_table("genes_report_table"),
+            ui.input_switch("quantile_switch","Plot quantiles"),
+            ui.input_action_button("compute", "Compute"),
+            ui.markdown("#### Results"),
+            ui.output_plot("plot"),
+            ui.output_table("display_result"),
+            ui.output_text_verbatim("warning"),
+            # ui.HTML("<hr><b>Warning!</b> The following items were excluded from the analysis:<br>"),
         ),
-
-    ui.input_action_button("compute", "Compute!"),
-    ui.input_action_button("reset", "Reset"),
-
-    ui.markdown("#### Results Table"),
-    ui.output_table("result"),
-
-    ui.markdown("#### Results Plot"),
-    ui.output_plot("results_plot")
+    ),
 )
-
 
 
 def server(input, output, session):
 
 # Genes
     @reactive.Calc
-    def get_genes():
+    def get_input_genes():
 
-        # Given the input genes list, returns valid gene Entrez IDs and Symbols, as well as invalid genes and symbols
-
-        # 1. Parse input and construct input dataframe
+        # 1. Parse input
         genes = input.genes_list().split() # input genes
         genes = [x.upper() for x in genes] # cast to upper
+        genes = list(set(genes)) # unique elements only
+
+        # 2. Check if genes are in annotation
+        genes_out = [g for g in genes if not g in gene_annotation.nodes()]
+        if len(genes_out) != 0:
+            # remove from genes to consider
+            genes = [g for g in genes if not g in genes_out]
 
         df = pd.DataFrame(genes, columns=["Input"])
 
-        # 2. Check if genes are in model
-        df["In Annotation"] = df["Input"].apply(lambda x: "Y" if x in gene_annotation.nodes() else "No")
-
         # 3. Get Entrez IDs of considered genes
+
         # A long lambda function:
         # - if the input is already an Entrez ID, keep that.
         # - else, decode the graph at the given node to find the entrez ID
 
-        df["Entrez IDs"] = df["Input"].apply(lambda g: g if gene_annotation.nodes()[g]['type'] == 'entrez' else [x for x in gene_annotation.neighbors(g)][0])
+        df["Entrez ID"] = df["Input"].apply(lambda g: g if gene_annotation.nodes()[g]['type'] == 'entrez' else list(gene_annotation.neighbors(g))[0])
 
-        # 3. Check that gene is in model
-        df["In Model"] = df["Entrez IDs"].apply(lambda x: "Y" if x in model_ranks.columns else "N")
+        # 4. Get gene symbols
+        df["Gene Symbol"] = df["Entrez ID"].apply(lambda x: list(gene_annotation.neighbors(x))[0])
 
-        # 4. Create final frame of valid genes
-        df["Valid?"] = df.apply(lambda row: "Y" if row["In Annotation"] == "Y" and row["In Model"] == "Y" else "N", axis=1)
+        # 5. Check that gene is in model
+        df["In Model"] = df["Entrez ID"].apply(lambda x: "Y" if x in model_ranks.columns else "N")
 
-        # 5. Reorder Columns
-        df = df[['Input', 'Entrez IDs', 'In Annotation','In Model', 'Valid?']]
-        return df
+        # 7. Reorder Columns
+        df = df[['Input', 'Entrez ID', "Gene Symbol", 'In Model']]
+        return df, genes_out
 
     @output
     @render.table
+    # May choose to display the input genes dataframe on the page
     def genes_report_table():
-        df = get_genes()
+        df, _= get_input_genes()
         return df
+
+    @output
+    @render.text
+    def warning():
+
+        if input.compute() == 0:
+            return ""
+
+        df, invalid_input = get_input_genes()
+        not_in_model = df[df["In Model"] == "N"]
+
+        # Report excluded genes
+        if len(invalid_input) == 0 and len(not_in_model) == 0:
+            return ""
+
+        spool = "Warning! The following genes were excluded from analysis:\n\n"
+        if len(invalid_input) != 0:
+            for gene in invalid_input:
+                spool += f" - {gene} is not an annotated gene. \n"
+
+        if len(not_in_model) != 0:
+            for gene in not_in_model.iterrows():
+                spool += f" - {gene[1][2]} (Entrez ID {gene[1][1]}) was not included in the model. \n"
+
+        ui.notification_show("Warning! Some genes were excluded from analysis!", type="Warning")
+        return spool
 
 # Display HPO selection
     @reactive.Calc
     def decode_OMIM():
-        # Decode OMIM disease into terms
-        # - TODO: Should happen only on add
-
         # Get OMIM ID
         dis_id = input.disease_selected()[:11]
 
@@ -213,64 +224,91 @@ def server(input, output, session):
         hp_names = [hpo_net.nodes()[x]['name'] for x in hp_map]
 
         # Return ID: PHENOTYPE
-        # - Why does this need to be an immutable type?
+        # - Does this need to be an immutable type?
         return pvector("%s: %s" % (hp_map[x], hp_names[x]) for x in range(len(hp_map)))
 
-    @reactive.Calc # Make reactive value?
+    @reactive.Calc
     def get_hpo_terms():
-        # If add has been pressed, return the selected hpo terms plus
-        # those included in the OMIM disease
+        # Update hpo list according to selected disease
         if input.add() != 0:
             return set(decode_OMIM() + input.hpo_selected())
         else:
             return input.hpo_selected()
 
     @reactive.Effect()
+    # On Add
     def _():
         if input.add() != 0:
             with reactive.isolate(): # inside this block, don't depend on inputs!
                 ui.update_selectize(
                     "hpo_selected",
-                    label="Choose HPO terms",
+                    label="Manually select abnormal phenotypes:",
                     choices=hpo_terms,
                     selected=list(get_hpo_terms()),
                 )
 
+    @reactive.Effect()
+    # On clear
+    def _():
+        if input.clear() != 0:
+            with reactive.isolate():
+                ui.update_selectize(
+                    "hpo_selected",
+                    label="Manually select abnormal phenotypes:",
+                    choices=hpo_terms,
+                    selected="",
+                )
+
 # Rank calculations
-    @output
-    @render.table
-    def result():
+    reactive.Calc
+    def rank_all_genes():
+        # Compute the ranks for all genes in model
+        input.compute()
+        input.clear()
+        with reactive.isolate():
+
+            if input.compute() == 0:
+                return None
+
+            # Get input hpo_terms, slice to only HP ID
+            terms = get_hpo_terms()
+
+            if len(terms) == 0:
+                ui.notification_show("Error: please enter at least one phenotype", type="error")
+                return pd.Series(None)
+
+            terms = [x[:10] for x in terms]
+
+            # Selected terms that are in the dataset, or nearest ancestors
+            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+
+            # Perform geometric mean operation on all genes in model
+            return combine_ranks(model_ranks, subset_terms)
+
+    reactive.Calc
+    def calc_result():
+        # Select ranks of chosen genes, return dataframe
         input.compute()
         with reactive.isolate():
 
             if input.compute() == 0:
                 return None
 
-            # Get input genes and hpo_terms
-            df = get_genes()
-            genes = list(df[df["Valid?"]=="Y"]["Entrez Ids"])
-
-            terms = get_hpo_terms()
-
-            # Reduce HPO terms to include only HP ID
-            terms = [x[:10] for x in terms]
-
-            # Subeset to selected genes
-            # subset_ranks = model_ranks[genes] # subset data to perform less calculation
-
-            # Selected terms that are in the dataset, or nearest ancestors
-            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+            # Select input genes
+            df, _ = get_input_genes()
+            genes = list(df[df["In Model"]=="Y"]["Entrez ID"])
 
             # Perform geometric mean operation on all genes in model
-            ranked_genes = combine_ranks(model_ranks, subset_terms)
-            # ranked_genes
+            all_ranks = rank_all_genes()
+
+            if len(all_ranks) == 0:
+                return None
 
             # Calculate quantiles
-            quantiles = pd.qcut(ranked_genes, 5, labels=False)
+            quantiles = pd.qcut(all_ranks, 5, labels=False)
 
-            # Selected gene ranks
-            print(genes)
-            sel_gene_ranks = ranked_genes[genes]
+            # Selected gene ranks, sorted by score
+            sel_gene_ranks = all_ranks[genes]
             sel_gene_ranks.sort_values(ascending=True, inplace=True)
             sel_quantiles = quantiles[genes]
             sel_quantiles.sort_values(ascending=True, inplace=True)
@@ -283,75 +321,84 @@ def server(input, output, session):
                 names.append(gene_annotation.nodes()[gene]['name'])
                 symbols.append(list(gene_annotation.neighbors(gene))[0])
 
-
             columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score", "Quantile"]
             return pd.DataFrame(
                 zip(ids, symbols, names, sel_gene_ranks, sel_quantiles+1),
                 columns=columns)
 
-
     @output
-    @render.plot
-    def results_plot():
+    @render.table
+    def display_result():
+        # Display the final dataframe
         input.compute()
         with reactive.isolate():
 
             if input.compute() == 0:
                 return None
 
-            # Get input genes and hpo_terms
-            genes, _, _ = get_genes()
-            terms = get_hpo_terms()
+            return calc_result()
 
-            # Reduce HPO terms to include only HP ID
-            terms = [x[:10] for x in terms]
+# Plot
+    def make_plot():
+        input.compute()
+        input.quantile_switch()
+        with reactive.isolate():
 
-            # Selected terms that are in the dataset, or nearest ancestors
-            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+            if input.compute() == 0:
+                return None
 
-            # Perform geometric mean operation on all genes in model
-            ranked_genes = combine_ranks(model_ranks, subset_terms)
-            ranked_genes.sort_values(ascending=True, inplace=True)
+            # Get results
+            result = calc_result()
+            all_ranks = rank_all_genes()
 
-            # Calculate quantiles
-            # quantiles = pd.qcut(ranked_genes, 5, labels=False)
-            # sel_quantiles = quantiles[genes]
+            if len(all_ranks) == 0:
+                return None
 
-            fig, ax = plt.subplots(figsize = (12, 5))
+            fig, ax = plt.subplots(figsize = (12, 7))
 
-            # Histogram
-            sns.histplot(ranked_genes, ax=ax)
+            # Histogram of all scores
 
+            sns.histplot(rank_all_genes(), ax=ax, edgecolor='white')
+            sns.despine()
             # Draw quantile lines
-            q = ['25%','50%', '75%']
-            colors = ['green', 'red', 'blue']
-            desc = ranked_genes.describe()
-            for i in range(len(q)):
-                ax.axvline(desc[q[i]], color=colors[i], ls="--", label=q[i])
+            if input.quantile_switch():
+                q = ['25%','50%', '75%']
+                colors = ['black', 'black', 'black']
+                print(all_ranks)
+                desc = all_ranks.describe()
+                for i in range(len(q)):
+                    ax.axvline(desc[q[i]], color=colors[i], ls="--")
 
-            # Draw stems
-            stem_y =  np.linspace(600, 1000, len(genes))
+            # Draw stems with labels
+            stem_y =  np.linspace(600, 1800, result.shape[0])
             plt.stem(
-                ranked_genes[genes],
+                result["Score"],
                 stem_y,
-                linefmt="C3:", markerfmt="C3.", basefmt="None")
+                linefmt="C3:", markerfmt="C3.", basefmt="None"
+                )
 
-            for i, gene in enumerate(genes):
-                ax.annotate((i+1), xy=(ranked_genes[gene], stem_y+20), size=16)
+            for i in range(result.shape[0]):
+                ax.annotate(
+                    result["Gene Symbol"][i],
+                    xy=(result["Score"][i], stem_y[i]+20),
+                    size=8
+                    )
 
-            # Legend for stems
-            ax.text(
-                1.02, 0.9,
-                label,
-                transform=ax.transAxes,
-                size="x-large", color="tab:blue",
-                horizontalalignment="left", verticalalignment="center",
-                bbox=dict(boxstyle="round", fc="w", ec="k"),
-            )
+            plt.ylim(0,2000)
+            plt.title("Distribution of Gene Ranks of all Genes in Model", y=1.02, weight=1.2)
 
-            ax.title.set_text("Histogram of Gene Ranks for all Genes in Model")
-            ax.legend()
+            return ax
 
+    @output
+    @render.plot
+    def plot():
+        input.compute()
+        with reactive.isolate():
+
+            if input.compute() == 0:
+                return None
+
+            ax = make_plot()
             return ax
 
 
