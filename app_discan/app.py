@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
-
 # Logscale version of the geometric mean
 def gmean(data, axis=0):
     return np.exp(np.mean(np.log(data), axis=axis))
@@ -47,14 +46,13 @@ def reduce_terms(data, hpo_tree, hpo_terms):
 
 # Loading data
 
-DATADIR = "./app_discan/data/"
 
 # Gene and disease annotations
-gene_annotation = nx.read_graphml(DATADIR + "gene_annotation.graphml")
-disease_net = nx.read_graphml(DATADIR + "disease_annot.graphml")
+gene_annotation = nx.read_graphml("gene_annotation.graphml")
+disease_net = nx.read_graphml("disease_annot.graphml")
 
 # HPO Terms
-hpo_net = nx.read_graphml(DATADIR + "hp.220616.obo.graphml") #the HPO obo tree (OLD!)
+hpo_net = nx.read_graphml("hp.220616.obo.graphml") #the HPO obo tree (OLD!)
 hpo_ids = [x for x in hpo_net.nodes() if nx.has_path(hpo_net, x, 'HP:0000118')]
 hpo_ids.sort()
 hpo_ids = hpo_ids[1:]
@@ -70,9 +68,9 @@ diseases = ["%s: %s" % (disease_ids[x], disease_names[x]) for x in range(len(dis
 # Model
 
 # Read from chunks
-model_probas = pd.read_csv(DATADIR + "compr_probas_2019_00.csv.gz", index_col=0, compression='gzip')
+model_probas = pd.read_csv("compr_probas_2022_00.csv.gz", index_col=0, compression='gzip')
 for chunk in range(1, 10):
-    filename = DATADIR + "compr_probas_2022_%02d.csv.gz" % chunk
+    filename = "compr_probas_2022_%02d.csv.gz" % chunk
     model_probas = pd.concat(
         [model_probas, pd.read_csv(filename, index_col=0, compression='gzip')],
         axis=1
