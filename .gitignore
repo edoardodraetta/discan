@@ -137,3 +137,4 @@ dmypy.json
 # Data
 probas_2019.csv
 probas_2022.csv
+*.ipynb
