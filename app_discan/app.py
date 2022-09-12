@@ -106,7 +106,8 @@ app_ui = ui.page_fluid(
                 "Select a disease, then press add:",
                 choices=diseases,
                 selected=["OMIM:147920: KABUKI SYNDROME 1: KABUK1"], # Doesn't work for some reason
-                width="400px"
+                width="400px",
+                multiple=True
                 ),
             ui.input_action_button(
                 "add",
@@ -119,7 +120,7 @@ app_ui = ui.page_fluid(
             ui.HTML("<br><br>"),
             ui.input_selectize(
                 "hpo_selected",
-                "Manually select abnormal phenotypes:",
+                "OR, Manually select abnormal phenotypes:",
                 choices=hpo_terms,
                 selected='',
                 multiple=True,
@@ -214,16 +215,25 @@ def server(input, output, session):
 # Display HPO selection
     @reactive.Calc
     def decode_OMIM():
+
         # Get OMIM ID
-        dis_id = input.disease_selected()[:11]
+        diseases = [d[:11] for d in input.disease_selected()]
 
-        # Get hp terms
-        hp_map = [x for x in disease_net.neighbors(dis_id) if nx.has_path(hpo_net, x, 'HP:0000118')]
-        hp_names = [hpo_net.nodes()[x]['name'] for x in hp_map]
+        print(diseases)
 
-        # Return ID: PHENOTYPE
-        # - Does this need to be an immutable type?
-        return pvector("%s: %s" % (hp_map[x], hp_names[x]) for x in range(len(hp_map)))
+        hp_sel = pvector()
+        for dis in diseases:
+            # Get hp terms
+            hp_map = [x for x in disease_net.neighbors(dis) if nx.has_path(hpo_net, x, 'HP:0000118')]
+            hp_names = [hpo_net.nodes()[x]['name'] for x in hp_map]
+
+            # Append ID: PHENOTYPE to selection
+            hp_map_name = pvector("%s: %s" % (hp_map[x], hp_names[x]) for x in range(len(hp_map)))
+            print(hp_map_name)
+            hp_sel += hp_map_name
+
+        print(hp_sel)
+        return hp_sel
 
     @reactive.Calc
     def get_hpo_terms():
@@ -240,7 +250,7 @@ def server(input, output, session):
             with reactive.isolate(): # inside this block, don't depend on inputs!
                 ui.update_selectize(
                     "hpo_selected",
-                    label="Manually select abnormal phenotypes:",
+                    label="OR: Manually select abnormal phenotypes:",
                     choices=hpo_terms,
                     selected=list(get_hpo_terms()),
                 )
@@ -252,7 +262,7 @@ def server(input, output, session):
             with reactive.isolate():
                 ui.update_selectize(
                     "hpo_selected",
-                    label="Manually select abnormal phenotypes:",
+                    label="OR: Manually select abnormal phenotypes:",
                     choices=hpo_terms,
                     selected="",
                 )
@@ -362,7 +372,6 @@ def server(input, output, session):
             if input.quantile_switch():
                 q = ['25%','50%', '75%']
                 colors = ['black', 'black', 'black']
-                print(all_ranks)
                 desc = all_ranks.describe()
                 for i in range(len(q)):
                     ax.axvline(desc[q[i]], color=colors[i], ls="--")
