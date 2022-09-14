@@ -10,10 +10,6 @@ import networkx as nx
 def gmean(data, axis=0):
     return np.exp(np.mean(np.log(data), axis=axis))
 
-# standard deviation from the geometric mean
-def gstd(data, axis=0):
-    mu = gmean(data, axis=axis)
-    return np.exp(np.sqrt(np.mean((np.log(data) - mu)**2, axis=axis)))
 
 # get geometric mean of ranks for given terms
 def combine_ranks(data, hpo_terms):
@@ -25,6 +21,7 @@ def combine_ranks(data, hpo_terms):
     # Label as genes
 
     return pd.Series(gmean(data.loc[hpo_terms, :], axis=0), index=data.columns)
+
 
 # given a list of hpo terms, get the closest ancestor in dataset columns
 def reduce_terms(data, hpo_tree, hpo_terms):
@@ -46,13 +43,14 @@ def reduce_terms(data, hpo_tree, hpo_terms):
 
 # Loading data
 
+DATADIR = "app_discan/" # Empty for shinyapps.io
 
 # Gene and disease annotations
-gene_annotation = nx.read_graphml("gene_annotation.graphml")
-disease_net = nx.read_graphml("disease_annot.graphml")
+gene_annotation = nx.read_graphml(DATADIR + "gene_annotation.graphml")
+disease_net = nx.read_graphml(DATADIR + "disease_annot.graphml")
 
 # HPO Terms
-hpo_net = nx.read_graphml("hp.220616.obo.graphml") #the HPO obo tree (OLD!)
+hpo_net = nx.read_graphml(DATADIR + "hp.220616.obo.graphml")
 hpo_ids = [x for x in hpo_net.nodes() if nx.has_path(hpo_net, x, 'HP:0000118')]
 hpo_ids.sort()
 hpo_ids = hpo_ids[1:]
@@ -68,9 +66,9 @@ diseases = ["%s: %s" % (disease_ids[x], disease_names[x]) for x in range(len(dis
 # Model
 
 # Read from chunks
-model_probas = pd.read_csv("compr_probas_2022_00.csv.gz", index_col=0, compression='gzip')
+model_probas = pd.read_csv(DATADIR + "compr_probas_2022_00.csv.gz", index_col=0, compression='gzip')
 for chunk in range(1, 10):
-    filename = "compr_probas_2022_%02d.csv.gz" % chunk
+    filename = DATADIR + "compr_probas_2022_%02d.csv.gz" % chunk
     model_probas = pd.concat(
         [model_probas, pd.read_csv(filename, index_col=0, compression='gzip')],
         axis=1
@@ -96,7 +94,8 @@ app_ui = ui.page_fluid(
             ui.input_text_area(
                 "genes_list",
                 "",
-                "TP53\nBRCA1\nBRCA2\nVEGFA\nKDM6A\nTP53\nTNF\nbla\n.+0\nEGFR\nVEGFA\nAPOE\nIL6\nTGFBI\nMTHFR\nESR1\nAKT1",
+                # "TP53\nBRCA1\nBRCA2\nVEGFA\nKDM6A\nTP53\nTNF\nbla\n.+0\nEGFR\nVEGFA\nAPOE\nIL6\nTGFBI\nMTHFR\nESR1\nAKT1",
+                "",
                 height='200px',
                 ),
 
@@ -219,7 +218,6 @@ def server(input, output, session):
         # Get OMIM ID
         diseases = [d[:11] for d in input.disease_selected()]
 
-        print(diseases)
 
         hp_sel = pvector()
         for dis in diseases:
@@ -229,10 +227,8 @@ def server(input, output, session):
 
             # Append ID: PHENOTYPE to selection
             hp_map_name = pvector("%s: %s" % (hp_map[x], hp_names[x]) for x in range(len(hp_map)))
-            print(hp_map_name)
             hp_sel += hp_map_name
 
-        print(hp_sel)
         return hp_sel
 
     @reactive.Calc
@@ -348,8 +344,12 @@ def server(input, output, session):
 
 # Plot
     def make_plot():
+
+        # Take a reactive dependency on the compute button
         input.compute()
         input.quantile_switch()
+
+        # But not on any of the other inputs, ideally!
         with reactive.isolate():
 
             if input.compute() == 0:
@@ -367,7 +367,7 @@ def server(input, output, session):
             # Histogram of all scores
 
             sns.histplot(rank_all_genes(), ax=ax, edgecolor='white')
-            sns.despine()
+
             # Draw quantile lines
             if input.quantile_switch():
                 q = ['25%','50%', '75%']
@@ -377,7 +377,7 @@ def server(input, output, session):
                     ax.axvline(desc[q[i]], color=colors[i], ls="--")
 
             # Draw stems with labels
-            stem_y =  np.linspace(600, 1800, result.shape[0])
+            stem_y =  np.linspace(700, 1800, result.shape[0])
             plt.stem(
                 result["Score"],
                 stem_y,
@@ -392,6 +392,8 @@ def server(input, output, session):
                     )
 
             plt.ylim(0,2000)
+            sns.despine()
+
             plt.title("Distribution of Gene Ranks of all Genes in Model", y=1.02, weight=1.2)
 
             return ax
