@@ -187,10 +187,8 @@ def server(input, output, session):
 
     @output
     @render.text
+    @reactive.event(input.compute)
     def warning():
-
-        if input.compute() == 0:
-            return ""
 
         df, invalid_input = get_input_genes()
         not_in_model = df[df["In Model"] == "N"]
@@ -218,7 +216,6 @@ def server(input, output, session):
         # Get OMIM ID
         diseases = [d[:11] for d in input.disease_selected()]
 
-
         hp_sel = pvector()
         for dis in diseases:
             # Get hp terms
@@ -232,183 +229,147 @@ def server(input, output, session):
         return hp_sel
 
     @reactive.Calc
+    @reactive.event(input.add)
     def get_hpo_terms():
-        # Update hpo list according to selected disease
-        if input.add() != 0:
-            return set(decode_OMIM() + input.hpo_selected())
-        else:
-            return input.hpo_selected()
+        return set(decode_OMIM() + input.hpo_selected())
 
     @reactive.Effect()
+    @reactive.event(input.add)
     # On Add
     def _():
-        if input.add() != 0:
-            with reactive.isolate(): # inside this block, don't depend on inputs!
-                ui.update_selectize(
-                    "hpo_selected",
-                    label="OR: Manually select abnormal phenotypes:",
-                    choices=hpo_terms,
-                    selected=list(get_hpo_terms()),
-                )
+        ui.update_selectize(
+            "hpo_selected",
+            label="OR: Manually select abnormal phenotypes:",
+            choices=hpo_terms,
+            selected=list(get_hpo_terms()),
+        )
 
     @reactive.Effect()
     # On clear
+    @reactive.event(input.clear)
     def _():
-        if input.clear() != 0:
-            with reactive.isolate():
-                ui.update_selectize(
-                    "hpo_selected",
-                    label="OR: Manually select abnormal phenotypes:",
-                    choices=hpo_terms,
-                    selected="",
-                )
+        ui.update_selectize(
+            "hpo_selected",
+            label="OR: Manually select abnormal phenotypes:",
+            choices=hpo_terms,
+            selected="",
+        )
+
 
 # Rank calculations
-    reactive.Calc
+    @reactive.Calc
+    @reactive.event(input.compute)
     def rank_all_genes():
-        # Compute the ranks for all genes in model
-        input.compute()
-        input.clear()
-        with reactive.isolate():
 
-            if input.compute() == 0:
-                return None
+        # Get input hpo_terms, slice to only HP ID
+        terms = get_hpo_terms()
 
-            # Get input hpo_terms, slice to only HP ID
-            terms = get_hpo_terms()
+        if len(terms) == 0:
+            ui.notification_show("Error: please enter at least one phenotype", type="error")
+            return pd.Series(None)
 
-            if len(terms) == 0:
-                ui.notification_show("Error: please enter at least one phenotype", type="error")
-                return pd.Series(None)
+        terms = [x[:10] for x in terms]
 
-            terms = [x[:10] for x in terms]
+        # Selected terms that are in the dataset, or nearest ancestors
+        subset_terms = reduce_terms(model_ranks, hpo_net, terms)
 
-            # Selected terms that are in the dataset, or nearest ancestors
-            subset_terms = reduce_terms(model_ranks, hpo_net, terms)
+        # Perform geometric mean operation on all genes in model
+        return combine_ranks(model_ranks, subset_terms)
 
-            # Perform geometric mean operation on all genes in model
-            return combine_ranks(model_ranks, subset_terms)
-
-    reactive.Calc
+    @reactive.Calc
+    @reactive.event(input.compute)
     def calc_result():
-        # Select ranks of chosen genes, return dataframe
-        input.compute()
-        with reactive.isolate():
 
-            if input.compute() == 0:
-                return None
+        # Select input genes
+        df, _ = get_input_genes()
+        genes = list(df[df["In Model"]=="Y"]["Entrez ID"])
 
-            # Select input genes
-            df, _ = get_input_genes()
-            genes = list(df[df["In Model"]=="Y"]["Entrez ID"])
+        # Perform geometric mean operation on all genes in model
+        all_ranks = rank_all_genes()
 
-            # Perform geometric mean operation on all genes in model
-            all_ranks = rank_all_genes()
+        if len(all_ranks) == 0:
+            return None
 
-            if len(all_ranks) == 0:
-                return None
+        # Calculate quantiles
+        quantiles = pd.qcut(all_ranks, 5, labels=False)
 
-            # Calculate quantiles
-            quantiles = pd.qcut(all_ranks, 5, labels=False)
+        # Selected gene ranks, sorted by score
+        sel_gene_ranks = all_ranks[genes]
+        sel_gene_ranks.sort_values(ascending=True, inplace=True)
+        sel_quantiles = quantiles[genes]
+        sel_quantiles.sort_values(ascending=True, inplace=True)
 
-            # Selected gene ranks, sorted by score
-            sel_gene_ranks = all_ranks[genes]
-            sel_gene_ranks.sort_values(ascending=True, inplace=True)
-            sel_quantiles = quantiles[genes]
-            sel_quantiles.sort_values(ascending=True, inplace=True)
+        ids = []
+        names = []
+        symbols = []
+        for gene in sel_gene_ranks.index:
+            ids.append(gene)
+            names.append(gene_annotation.nodes()[gene]['name'])
+            symbols.append(list(gene_annotation.neighbors(gene))[0])
 
-            ids = []
-            names = []
-            symbols = []
-            for gene in sel_gene_ranks.index:
-                ids.append(gene)
-                names.append(gene_annotation.nodes()[gene]['name'])
-                symbols.append(list(gene_annotation.neighbors(gene))[0])
-
-            columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score", "Quantile"]
-            return pd.DataFrame(
-                zip(ids, symbols, names, sel_gene_ranks, sel_quantiles+1),
-                columns=columns)
+        columns = ["Entrez ID", "Gene Symbol", "Name and Description", "Score", "Quantile"]
+        return pd.DataFrame(
+            zip(ids, symbols, names, sel_gene_ranks, sel_quantiles+1),
+            columns=columns)
 
     @output
     @render.table
+    @reactive.event(input.compute)
     def display_result():
-        # Display the final dataframe
-        input.compute()
-        with reactive.isolate():
-
-            if input.compute() == 0:
-                return None
-
-            return calc_result()
+        return calc_result()
 
 # Plot
+    @reactive.event(input.compute)
     def make_plot():
+        # Get results
+        result = calc_result()
+        all_ranks = rank_all_genes()
 
-        # Take a reactive dependency on the compute button
-        input.compute()
-        input.quantile_switch()
+        if len(all_ranks) == 0:
+            return None
 
-        # But not on any of the other inputs, ideally!
-        with reactive.isolate():
+        fig, ax = plt.subplots(figsize = (12, 7))
 
-            if input.compute() == 0:
-                return None
+        # Histogram of all scores
 
-            # Get results
-            result = calc_result()
-            all_ranks = rank_all_genes()
+        sns.histplot(rank_all_genes(), ax=ax, edgecolor='white')
 
-            if len(all_ranks) == 0:
-                return None
+        # Draw quantile lines
+        if input.quantile_switch():
+            q = ['25%','50%', '75%']
+            colors = ['black', 'black', 'black']
+            desc = all_ranks.describe()
+            for i in range(len(q)):
+                ax.axvline(desc[q[i]], color=colors[i], ls="--")
 
-            fig, ax = plt.subplots(figsize = (12, 7))
+        # Draw stems with labels
+        stem_y =  np.linspace(700, 1800, result.shape[0])
+        plt.stem(
+            result["Score"],
+            stem_y,
+            linefmt="C3:", markerfmt="C3.", basefmt="None"
+            )
 
-            # Histogram of all scores
-
-            sns.histplot(rank_all_genes(), ax=ax, edgecolor='white')
-
-            # Draw quantile lines
-            if input.quantile_switch():
-                q = ['25%','50%', '75%']
-                colors = ['black', 'black', 'black']
-                desc = all_ranks.describe()
-                for i in range(len(q)):
-                    ax.axvline(desc[q[i]], color=colors[i], ls="--")
-
-            # Draw stems with labels
-            stem_y =  np.linspace(700, 1800, result.shape[0])
-            plt.stem(
-                result["Score"],
-                stem_y,
-                linefmt="C3:", markerfmt="C3.", basefmt="None"
+        for i in range(result.shape[0]):
+            ax.annotate(
+                result["Gene Symbol"][i],
+                xy=(result["Score"][i], stem_y[i]+20),
+                size=8
                 )
 
-            for i in range(result.shape[0]):
-                ax.annotate(
-                    result["Gene Symbol"][i],
-                    xy=(result["Score"][i], stem_y[i]+20),
-                    size=8
-                    )
+        plt.ylim(0,2000)
+        sns.despine()
 
-            plt.ylim(0,2000)
-            sns.despine()
+        plt.title("Distribution of Gene Ranks of all Genes in Model", y=1.02, weight=1.2)
 
-            plt.title("Distribution of Gene Ranks of all Genes in Model", y=1.02, weight=1.2)
-
-            return ax
+        return ax
 
     @output
     @render.plot
+    @reactive.event(input.compute)
     def plot():
-        input.compute()
-        with reactive.isolate():
-
-            if input.compute() == 0:
-                return None
-
-            ax = make_plot()
-            return ax
+        ax = make_plot()
+        return ax
 
 
 app = App(app_ui, server)
