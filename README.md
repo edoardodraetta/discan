@@ -4,4 +4,4 @@ This repository contains the requisite files for a [shiny app](https://shiny.rst
 
 Shiny apps can be run in the [terminal](https://shiny.rstudio.com/py/docs/get-started.html). 
 
-To use, simply enter a list of genes, select the phenotypes which characterize your syndrome (either individually or by selecting a canonical [OMIM](https://omim.org) disease)
+To use, simply enter a list of genes, select the phenotypes which characterize your syndrome (either individually or by selecting a canonical [OMIM](https://omim.org) disease). Then, click compute. 
